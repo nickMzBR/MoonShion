@@ -580,12 +580,27 @@ html,body,#app{width:100%;height:100%;overflow:hidden;background:var(--bg);color
 </div><!-- #app -->
 <div class="toast" id="toast"></div>
 
-<script type="module">
-import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getDatabase,ref,set,get,onValue,off,push,update,remove}
-  from"https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-const app=initializeApp({apiKey:"AIzaSyBdffutXStDSzLyA6ukYqaEha6LQE5KHd8",authDomain:"classshooter2d.firebaseapp.com",databaseURL:"https://classshooter2d-default-rtdb.firebaseio.com",projectId:"classshooter2d",storageBucket:"classshooter2d.firebasestorage.app",messagingSenderId:"898490865640",appId:"1:898490865640:web:239932898e85019549b65d"});
-const db=getDatabase(app);
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyBdffutXStDSzLyA6ukYqaEha6LQE5KHd8",authDomain:"classshooter2d.firebaseapp.com",databaseURL:"https://classshooter2d-default-rtdb.firebaseio.com",projectId:"classshooter2d",storageBucket:"classshooter2d.firebasestorage.app",messagingSenderId:"898490865640",appId:"1:898490865640:web:239932898e85019549b65d"});
+const _db=firebase.database();
+// Compat wrappers
+function ref(db,path){return _db.ref(path);}
+function set(r,v){return r.set(v);}
+function get(r){return r.once('value');}
+function push(r){return r.push();}
+function update(rOrDb,v){
+  // If called as update(ref(db,'path/to'),{...}) — single ref update
+  if(typeof rOrDb.update==='function'&&!v){return rOrDb.update({});}
+  if(typeof rOrDb.update==='function')return rOrDb.update(v);
+  // If called as update(ref(db), {'/path/key': val}) — multi-path update
+  return _db.ref().update(v);
+}
+function remove(r){return r.remove();}
+function onValue(r,cb){r.on('value',cb);return ()=>r.off('value',cb);}
+function off(r){if(r&&typeof r.off==='function')r.off('value');}
+const db=_db;
 
 // Stars
 (()=>{const c=document.getElementById('starsEl');for(let i=0;i<70;i++){const s=document.createElement('div');const sz=.6+Math.random()*2;s.className='star';s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${sz}px;height:${sz}px;--d:${(2+Math.random()*5).toFixed(1)}s;--dl:${(Math.random()*5).toFixed(1)}s`;c.appendChild(s);}})();
@@ -720,7 +735,8 @@ function enterLobby(){
   get(ref(db,'users/'+ME.uid)).then(s=>{if(s.exists()){const d=s.val();ME.trophies=d.trophies||0;ME.wins=d.wins||0;ME.losses=d.losses||0;updateLobbyUI();}});
   updateLobbyUI();
   if(lbUnsub)lbUnsub();
-  lbUnsub=onValue(ref(db,'users'),snap=>{
+  lbUnsub=()=>_db.ref('users').off('value');
+  _db.ref('users').on('value',snap=>{
     if(!snap.exists())return;
     const list=[];snap.forEach(c=>{const d=c.val();if(d.nickname)list.push({uid:c.key,nick:d.nickname,tr:d.trophies||0});});
     list.sort((a,b)=>b.tr-a.tr);
@@ -797,11 +813,11 @@ function listenRoom(code,needed){
     if(!snap.exists())return;
     const d=snap.val();
     document.getElementById('wCnt').textContent=d.playerCount||1;
-    if(d.status==='active'&&(d.playerCount||1)>=needed){off(r);roomUnsub=null;closeModal('playModal');startOnlineMatch(code,d);}
+    if(d.status==='active'&&(d.playerCount||1)>=needed){try{r.off('value');}catch(e){}roomUnsub=null;closeModal('playModal');startOnlineMatch(code,d);}
   });
 }
 window.cancelRoom=async function(){
-  if(roomUnsub&&currentRoomCode){off(ref(db,'rooms/'+currentRoomCode));roomUnsub=null;}
+  if(roomUnsub&&currentRoomCode){try{_db.ref('rooms/'+currentRoomCode).off('value');}catch(e){}roomUnsub=null;}
   if(currentRoomCode){try{await remove(ref(db,'rooms/'+currentRoomCode));}catch(e){}}
   resetRoomUI();
 };
@@ -825,12 +841,13 @@ window.joinRoom=async function(){
     upd['rooms/'+code+'/players/'+ME.uid]={uid:ME.uid,nick:ME.nickname,brawler:selectedBrawler,team,slot:existing.length};
     upd['rooms/'+code+'/playerCount']=newCount;
     if(newCount>=needed)upd['rooms/'+code+'/status']='active';
-    await update(ref(db),upd);
+    await _db.ref().update(upd);
     currentRoomCode=code;
-    const unsub=onValue(ref(db,'rooms/'+code),snap2=>{
+    const rRef=_db.ref('rooms/'+code);
+    const unsub=rRef.on('value',snap2=>{
       if(!snap2.exists())return;
       const d2=snap2.val();
-      if(d2.status==='active'){off(ref(db,'rooms/'+code));closeModal('playModal');startOnlineMatch(code,d2);}
+      if(d2.status==='active'){rRef.off('value');closeModal('playModal');startOnlineMatch(code,d2);}
     });
   }catch(e){console.error(e);setErr('perr','Erro ao entrar na sala.');}
 };
@@ -872,8 +889,8 @@ function startOnlineMatch(code,roomData){
 }
 
 function listenMatch(mid){
-  matchRef=ref(db,'matches/'+mid);
-  matchUnsub=onValue(matchRef,snap=>{
+  matchRef=_db.ref('matches/'+mid);
+  matchRef.on('value',snap=>{
     if(!snap.exists())return;
     const d=snap.val();
     if(d.status==='active')document.getElementById('wOv').classList.remove('on');
@@ -891,11 +908,12 @@ function listenMatch(mid){
       Object.entries(d.superEvents).forEach(([id,ev])=>{
         if(ev.processed||ev.uid===ME.uid)return;
         handleRemoteSuper(ev);
-        update(ref(db,'matches/'+mid+'/superEvents/'+id),{processed:true});
+        _db.ref('matches/'+mid+'/superEvents/'+id).update({processed:true});
       });
     }
     if(d.status==='finished'&&!G.over){G.over=true;showEndScreen(d.winner);}
   });
+  matchUnsub=true;
 }
 
 function buildHUD(allP){
@@ -1257,7 +1275,8 @@ function showEndScreen(winnerTeam){
 window.backToLobby=function(){document.getElementById('eOv').classList.remove('on');stopGame();trainingMode=false;enterLobby();};
 function stopGame(){
   if(rafId){cancelAnimationFrame(rafId);rafId=null;}
-  if(matchUnsub&&matchRef){off(matchRef);matchUnsub=null;}
+  if(matchRef){try{matchRef.off('value');}catch(e){}}
+  matchUnsub=null;
   document.removeEventListener('keydown',onKey);document.removeEventListener('keyup',onKey);
   matchId=null;matchRef=null;currentMode=null;currentMap=null;
 }
